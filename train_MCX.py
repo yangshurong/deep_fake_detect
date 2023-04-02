@@ -24,9 +24,9 @@ LOGGER = get_logger()
 def args_func():
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, help='The path to the config.',
-                        default='./configs/cross_efficient_vit.cfg')
+                        default='./configs/mcx_api.cfg')
     parser.add_argument('--ckpt', type=str, help='The checkpoint of the pretrained model.',
-                        default='./checkpoints/qqcross_efficient_vit_init.pth')
+                        default='./checkpoints/mcx_api.pth')
     args = parser.parse_args()
     return args
 
@@ -85,7 +85,8 @@ def test_one_epoch(set_name, net, device, test_loader, cfg, optimizer, epoch):
         labels = labels.long().to(device)
         batch_data = batch_data.to(device)
 
-        outputs = net(batch_data)
+        # outputs = net(batch_data)
+        outputs = net(batch_data, targets=None, flag='val')
         acc = sum(outputs.max(-1).indices ==
                   labels).item() / labels.shape[0]
         outputs = outputs[:, 1]
@@ -108,6 +109,38 @@ def test_one_epoch(set_name, net, device, test_loader, cfg, optimizer, epoch):
     LOGGER.info(f"{set_name} for best roc_auc is {AUC_MAX[set_name]:.4f}")
 
 
+class OrthogonalProjectionLoss(nn.Module):
+    def __init__(self, gamma=0.5):
+        super(OrthogonalProjectionLoss, self).__init__()
+        self.gamma = gamma
+
+    def forward(self, features, labels=None):
+        # print(f'features.shape {features.shape}')
+        # print(f'labels.shape {labels.shape}')
+        device = (torch.device('cuda')
+                  if features.is_cuda else torch.device('cpu'))
+
+        #  features are normalized
+        features = F.normalize(features, p=2, dim=1)
+
+        labels = labels[:, None]  # extend dim
+
+        mask = torch.eq(labels, labels.t()).bool().to(device)
+        eye = torch.eye(mask.shape[0], mask.shape[1]).bool().to(device)
+
+        mask_pos = mask.masked_fill(eye, 0).float()
+        mask_neg = (~mask).float()
+        dot_prod = torch.matmul(features, features.t())
+
+        pos_pairs_mean = (mask_pos * dot_prod).sum() / (mask_pos.sum() + 1e-6)
+        neg_pairs_mean = (mask_neg * dot_prod).sum() / \
+            (mask_neg.sum() + 1e-6)  # TODO: removed abs
+
+        loss = (1.0 - pos_pairs_mean) + self.gamma * neg_pairs_mean
+
+        return loss
+
+
 def train():
     args = args_func()
 
@@ -118,10 +151,32 @@ def train():
     net = model.get(cfg)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    print(cfg)
+    train_dataset = DeepfakeDatasetSBI('train', cfg)
+    train_loader = DataLoader(train_dataset,
+                              batch_size=cfg['train']['batch_size'],
+                              shuffle=True, num_workers=cfg['num_worker'],
+                              collate_fn=my_collate, pin_memory=True,drop_last=True
+                              )
+    test_loaders = {}
+    for k, v in cfg['test']['dataset'].items():
+        test_dataset = DeepfakeDatasetTEST(k, v, cfg)
+
+        test_loader = DataLoader(test_dataset,
+                                 batch_size=cfg['test']['batch_size'],
+                                 shuffle=False, num_workers=cfg['num_worker'],
+                                 pin_memory=True,
+                                 drop_last=True
+                                 )
+        test_loaders[k] = test_loader
+
     net = net.to(device)
     # optimizer init.
-    optimizer = optim.AdamW(net.parameters(), lr=1e-3, weight_decay=4e-3)
-
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.01,
+                                momentum=0.9,
+                                weight_decay=5e-4)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, 100*len(train_loader))
     # load checkpoint if given
     base_epoch = 0
     if args.ckpt:
@@ -143,66 +198,80 @@ def train():
     )
     criterion = nn.CrossEntropyLoss()
 
-    # get training data
-    print(cfg)
-    train_dataset = DeepfakeDatasetSBI('train', cfg)
-    train_loader = DataLoader(train_dataset,
-                              batch_size=cfg['train']['batch_size'],
-                              shuffle=True, num_workers=cfg['num_worker'],
-                              collate_fn=my_collate, pin_memory=True
-                              )
-    test_loaders = {}
-    for k, v in cfg['test']['dataset'].items():
-        test_dataset = DeepfakeDatasetTEST(k, v, cfg)
-
-        test_loader = DataLoader(test_dataset,
-                                 batch_size=cfg['test']['batch_size'],
-                                 shuffle=True, num_workers=cfg['num_worker'],
-                                 pin_memory=True
-                                 )
-        test_loaders[k] = test_loader
     # start trining.
     time_out = 0
     time_enter = 0
+    rank_criterion = nn.MarginRankingLoss(margin=0.05)
+    op_loss = OrthogonalProjectionLoss(gamma=0.5)
+    op_lambda = 0.4
+    softmax_layer = nn.Softmax(dim=1).to(device)
+
     for epoch in range(base_epoch, cfg['train']['epoch_num']):
         net.train()
         for index, (batch_data, batch_labels) in enumerate(train_loader):
             time_enter = int(time.time())
             if cfg['log_time_cost'] and index != 0:
                 LOGGER.info(f'dataload one cost{time_enter-time_out}')
-            lr = update_learning_rate(epoch)
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
 
+            # detect--------------------------------
             labels, location_labels, confidence_labels = batch_labels
             labels = labels.long().to(device)
             location_labels = location_labels.to(device)
             confidence_labels = confidence_labels.long().to(device)
             batch_data = batch_data.to(device)
 
+            # MCX--------------------------------
             optimizer.zero_grad()
-            locations, confidence, outputs = net(batch_data)
-            # LOGGER.info()
-            loss_end_cls = criterion(outputs, labels)
-            loss_l, loss_c = det_criterion(
-                (locations, confidence),
-                confidence_labels, location_labels
-            )
-            print(outputs.shape)
-            acc = sum(outputs.max(-1).indices ==
-                      labels).item() / labels.shape[0]
-            det_loss = 0.1 * (loss_l + loss_c)
-            loss = det_loss + loss_end_cls
-            loss.backward()
+            logit1_self, logit1_other, logit2_self, logit2_other, labels1, labels2, features = net(
+                batch_data, labels, flag='train', dist_type='euclidean')
+            
+            # locations, confidence, logit1_self, logit1_other, logit2_self, logit2_other, labels1, labels2, features = model(
+            #     batch_data, labels, flag='train', dist_type='euclidean')
+            batch_size = logit1_self.shape[0]
+            labels1 = labels1.to(device)
+            labels2 = labels2.to(device)
 
-            torch.nn.utils.clip_grad_value_(net.parameters(), 2)
+            self_logits = torch.zeros(2*batch_size, 2).to(device)
+            other_logits = torch.zeros(2*batch_size, 2).to(device)
+            self_logits[:batch_size] = logit1_self
+            self_logits[batch_size:] = logit2_self
+            other_logits[:batch_size] = logit1_other
+            other_logits[batch_size:] = logit2_other
+
+            logits = torch.cat([self_logits, other_logits], dim=0)
+            targets = torch.cat([labels1, labels2, labels1, labels2], dim=0)
+            softmax_loss = criterion(logits, targets)
+
+            self_scores = softmax_layer(self_logits)[torch.arange(2*batch_size).to(device).long(),
+                                                     torch.cat([labels1, labels2], dim=0)]
+            other_scores = softmax_layer(other_logits)[torch.arange(2*batch_size).to(device).long(),
+                                                       torch.cat([labels1, labels2], dim=0)]
+            flag = torch.ones([2*batch_size, ]).to(device)
+            rank_loss = rank_criterion(self_scores, other_scores, flag)
+
+            # orthogonal projection loss
+            loss_op = op_loss(features, labels)
+
+            # loss_l, loss_c = det_criterion(
+            #     (locations, confidence),
+            #     confidence_labels, location_labels
+            # )
+            # det_loss = 0.1 * (loss_l + loss_c)
+
+            loss = softmax_loss + rank_loss + op_lambda * loss_op
+            loss.backward()
+            # measure accuracy and record loss
+            acc = sum(logits.max(-1).indices ==
+                      targets).item() / targets.shape[0]
+
             optimizer.step()
+            lr_scheduler.step()
 
             outputs = [
                 "e:{},iter: {}".format(epoch, index),
                 "acc: {:.6f}".format(acc),
                 "loss: {:.8f} ".format(loss.item()),
-                "lr:{:.4g}".format(lr),
+                "lr:{:.4g}".format(optimizer.state_dict()['param_groups'][0]['lr']),
             ]
             if index % cfg['log_interval'] == 0:
                 LOGGER.info(" ".join(outputs))

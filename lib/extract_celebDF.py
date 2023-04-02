@@ -21,21 +21,14 @@ torch.multiprocessing.set_start_method('spawn')
 # torch.multiprocessing.set_start_method('spawn')
 LOGGER = get_logger()
 
-# PAGE_ID_LIST = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
-# PAGE_ID_LIST = [7, 8, 9]
-PAGE_ID_LIST = [4, 5, 6, 7, 8, 9, 10, 11]
-# PAGE_ID_LIST = [10, 11, 12]
-# PAGE_ID_LIST = [13, 14, 15]
-# PAGE_ID_LIST = [16, 17]
-# PAGE_ID_LIST = [4]
-SAVE_IMGS_PATH = os.path.join(os.getcwd(), 'test_DFDC')
+SAVE_IMGS_PATH = os.path.join('./all_celebdf')
 os.makedirs(SAVE_IMGS_PATH, exist_ok=True)
 PREDICTOR_PATH = "./lib/shape_predictor_81_face_landmarks.dat"
 DATASETS = {'Original', 'FaceSwap', 'FaceShifter',
             'Face2Face', 'Deepfakes', 'NeuralTextures'}
 COMPRESSION = {'c23'}
 NUM_FRAMES = 5
-NUM_PROCESSES = 8
+NUM_PROCESSES = 6
 SAVE_INTERVAL = 5
 # global res_dict
 
@@ -50,9 +43,9 @@ def preprocess_video(video_name, source_name, video_path, source_path, label, fa
 
     # get the path of corresponding source imgs
     save_path = os.path.join(SAVE_IMGS_PATH, video_name)
-    if os.path.exists(os.path.join(save_path, 'ldm.json')):
-        return
-    os.makedirs(save_path, exist_ok=True)
+    # if os.path.exists(os.path.join(save_path, 'ldm.json')):
+    #     return
+    # os.makedirs(save_path, exist_ok=True)
 
     # videoset = VideoSet(video_path)
     # videoLoader = DataLoader(videoset, num_workers=0)
@@ -124,7 +117,7 @@ def preprocess_video(video_name, source_name, video_path, source_path, label, fa
         video_dict = {}
         video_dict['dets'] = land_fives.tolist()
         video_dict['landmark'] = landmarks.tolist()
-        video_dict['label'] = 1 if label != 'FAKE' else 0
+        video_dict['label'] = label
         video_dict['source_path'] = f"{source_name}/frame_{cnt_frame}.png"
         tmp_res[f"{video_name}/frame_{cnt_frame}.png"] = video_dict
         # print(f"{video_name}/frame_{cnt_frame}")
@@ -143,54 +136,49 @@ def preprocess_video(video_name, source_name, video_path, source_path, label, fa
     # return tmp_res, cur_num, save_path
 
 
-def run_page(page_id, face_detector, face_predictor):
-    meta_path = './data/dfdc_train_part_{}/metadata.json'.format(str(page_id))
-    from_res = {}
-
-    with open(meta_path, 'r', encoding='utf-8') as f:
-        s = f.read()
-        from_res = json.loads(s)
-        LOGGER.info(f'finish get {meta_path}')
-    # sort for REAl at front
-    res = {}
-    for k, v in from_res.items():
-        if v['label'] == 'REAL':
-            res[k] = v
-    for k, v in from_res.items():
-        if v['label'] == 'FAKE':
-            res[k] = v
-
-    pre_video_path = os.path.join(
-        os.getcwd(), 'data/dfdc_train_part_{}/'.format(str(page_id)))
+def run_page(video_path, face_detector, face_predictor, label):
     cur_num = 0
     my_pool = ThreadPool(processes=NUM_PROCESSES)
-    for k, v in tqdm(from_res.items()):
-        label = v['label']
-        split = v['split']
-        origin = k
-        if label == 'FAKE':
-            origin = v['original']
-        cur_path = os.path.join(pre_video_path, k)
-        source_path = os.path.join(pre_video_path, origin)
-        video_name = k.split('.')[0]
-        # if f'{video_name}/frame_0.png' in res_dict:
-        #     continue
-        if os.path.exists(cur_path) == False:
-            # LOGGER.info(cur_path)
-            continue
-        my_pool.apply_async(func=preprocess_video, args=(video_name, origin.split('.')[0],
-                                                         cur_path, source_path, label,
-                                                         face_detector, face_predictor, cur_num
-                                                         ))
-        # preprocess_video(video_name, origin.split('.')[0],
-        #                  cur_path, source_path, label,
-        #                  face_detector, face_predictor, cur_num
-        #                  )
-        if cur_num % (NUM_PROCESSES+2) == 0:
-            my_pool.close()
-            my_pool.join()
-            my_pool = ThreadPool(processes=NUM_PROCESSES)
-        cur_num += 1
+    g = os.walk(video_path)
+    for path, dir_list, file_list in g:
+        for file_name in file_list:
+            video_name = file_name.split('.')[0]
+            origin = video_name
+            if np.random.rand() <= 0.8 and label == 0:
+                continue
+            if label == 0:
+                x, y, z = video_name.split('_')
+                origin = x+"_"+z
+
+            cur_path = os.path.join(path, file_name)
+            source_path = os.path.join(path, origin+'.mp4')
+
+            if os.path.exists(cur_path) == False:
+                continue
+            save_path = os.path.join(SAVE_IMGS_PATH, video_name)
+            if os.path.exists(os.path.join(save_path, 'ldm.json')):
+                return
+            os.makedirs(save_path, exist_ok=True)
+            my_pool.apply_async(func=preprocess_video, args=(video_name, origin,
+                                                             cur_path, source_path, label,
+                                                             face_detector, face_predictor, cur_num
+                                                             ))
+            # preprocess_video(video_name, origin,
+            #  cur_path, source_path, label,
+            #  face_detector, face_predictor, cur_num
+            #  )
+            if cur_num % (NUM_PROCESSES+2) == 0:
+                my_pool.close()
+                my_pool.join()
+                my_pool = ThreadPool(processes=NUM_PROCESSES)
+            cur_num += 1
+
+
+PAGE_LIST = [
+    ('./Celeb-DF-v2/Celeb-real', 1),
+    ('./Celeb-DF-v2/Celeb-synthesis', 0),
+    ('./Celeb-DF-v2/YouTube-real', 1)
+]
 
 
 def main():
@@ -198,9 +186,9 @@ def main():
                               max_size=2048, device=torch.device('cuda:0'))
     face_detector.eval()
     face_predictor = dlib.shape_predictor(PREDICTOR_PATH)
-    for i in PAGE_ID_LIST:
+    for i, label in PAGE_LIST:
 
-        run_page(i, face_detector, face_predictor)
+        run_page(i, face_detector, face_predictor, label)
 
 
 if __name__ == '__main__':

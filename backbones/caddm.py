@@ -13,7 +13,7 @@ from backbones.efficientnet_pytorch import EfficientNet
 
 class CADDM(nn.Module):
 
-    def __init__(self, num_classes, backbone='resnet34'):
+    def __init__(self, num_classes, backbone='efficientnet-b3'):
         super(CADDM, self).__init__()
 
         self.num_classes = num_classes
@@ -23,11 +23,11 @@ class CADDM(nn.Module):
             self.base_model = resnet34(pretrained=True)
         elif backbone == 'efficientnet-b3':
             self.base_model = EfficientNet.from_pretrained(
-                'efficientnet-b3', out_size=[1, 3]
+                'efficientnet-b3'
             )
         elif backbone == 'efficientnet-b4':
             self.base_model = EfficientNet.from_pretrained(
-                'efficientnet-b4', out_size=[1, 3]
+                'efficientnet-b4'
             )
         else:
             raise ValueError("Unsupported Backbone!")
@@ -43,7 +43,8 @@ class CADDM(nn.Module):
     def forward(self, x):
         batch_num = x.size(0)
         x, global_feat = self.base_model(x)
-
+        # print('x shape',x.shape)
+        # print('global_feat shape',global_feat.shape)
         # location result, confidence of each anchor, final feature map of adm.
         loc, cof, adm_final_feat = self.adm(x)
 
@@ -54,4 +55,3 @@ class CADDM(nn.Module):
             return loc, cof, final_cls
         return self.softmax(final_cls)
 
-# vim: ts=4 sw=4 sts=4 expandtab

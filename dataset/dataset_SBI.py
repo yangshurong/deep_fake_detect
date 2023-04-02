@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from PIL import Image
 import random
 import os
 import cv2
@@ -171,7 +172,6 @@ def get_alpha_blend_mask(mask):
     mask_blured = mask_blured/(mask_blured.max())
     return mask_blured.reshape((mask_blured.shape+(1,)))
 
-from PIL import Image
 
 class DeepfakeDatasetSBI(Dataset):
     r"""DeepfakeDataset Dataset.
@@ -188,38 +188,72 @@ class DeepfakeDatasetSBI(Dataset):
     def __init__(self, mode: str, config: dict):
         super().__init__()
 
+        assert mode in ['train', 'test']
         self.config = config
         self.mode = mode
-        assert mode in ['train', 'test']
-        self.root = self.config[mode]['img_path']
-        self.landmark_path = self.config[mode]['ld_path']
+        self.use_sbi = config[mode]['use_SBI']
         self.rng = np.random
         self.transforms = self.get_transforms()
         self.source_transforms = self.get_source_transforms()
         self.samples = self.collect_samples()
         self.do_train = True if mode == 'train' else False
+        self.images_cache = {}
 
     def collect_samples(self) -> List:
         samples = []
+        pre_len = 0
         # directory = os.path.expanduser(self.root)
-        from_res = {}
-        from_res = {}
-        with open(self.landmark_path, 'r', encoding='utf-8') as f:
-            s = f.read()
-            from_res = json.loads(s)
+        for set_name, set_value in self.config[self.mode]['dataset'].items():
+            pre_len = len(samples)
+            true_num = 0
+            for path, dir_list, file_list in os.walk(set_value):
+                for dir_name in dir_list:
+                    # if not os.path.exists(os.path.join(path, dir_name, 'existF.json')):
+                    #     continue
+                    ldm_path = os.path.join(path, dir_name, 'ldm.json')
+                    if os.path.exists(ldm_path) == False:
+                        continue
 
-        for k, v in from_res.items():
-            video_path = os.path.join(self.root, k)
-            source_path = os.path.join(self.root, v['source_path'])
-            if not os.path.exists(video_path) or not os.path.exists(source_path):
-                continue
-            samples.append(
-                (video_path, {'labels': int(v['label']), 'landmark': v['landmark'],
-                              'source_path': source_path,
-                              'video_name': k.split('/')[0],
-                              'dets': v['dets']})
-            )
-        print(f'get {len(samples)} train images')
+                    from_res = {}
+                    with open(ldm_path, 'r', encoding='utf-8') as f:
+                        s = f.read()
+                        from_res = json.loads(s)
+
+                    for k, v in from_res.items():
+                        video_path = os.path.join(path, k)
+                        source_path = os.path.join(path, v['source_path'])
+                        if not os.path.exists(video_path):
+                            continue
+
+                        if not os.path.exists(source_path):
+                            if int(v['label']) == 0:
+                                continue
+                        # if int(v['label']) == 0 and set_name != 'FF++' and np.random.uniform(0, 1) <= 0.8:
+                        #     continue
+                        samples.append(
+                            (video_path, {'labels': int(v['label']) ^ 1, 'landmark': v['landmark'],
+                                          'source_path': source_path,
+                                          'video_name': k.split('/')[0],
+                                          'use_SBI': True,
+                                          'dets': v['dets']})
+                        )
+                        if int(v['label']) == 1 and self.mode == 'train':
+                            samples.append(
+                                (video_path, {'labels': int(v['label']) ^ 1, 'landmark': v['landmark'],
+                                              'source_path': source_path,
+                                              'video_name': k.split('/')[0],
+                                              'use_SBI': False,
+                                              'dets': v['dets']})
+                            )
+
+                        if v['label'] == 1:
+                            true_num += 1
+
+                break
+            print(
+                f'get {set_name} {len(samples)-pre_len} images for {self.mode}')
+            print(
+                f'get {set_name} {true_num} true images for {self.mode}')
         return samples
 
     def collect_class(self) -> Dict:
@@ -227,44 +261,62 @@ class DeepfakeDatasetSBI(Dataset):
         classes.sort(reverse=True)
         return {classes[i]: np.int32(i) for i in range(len(classes))}
 
+    def get_cache(self, path):
+        if path in self.images_cache:
+            return self.images_cache[path]
+        if len(self.images_cache) < self.config['cache_num']:
+            self.images_cache[path] = np.array(Image.open(path))
+            return self.images_cache[path]
+        return np.array(Image.open(path))
+
     def __getitem__(self, index: int) -> Tuple:
         path, label_meta = self.samples[index]
-        img=np.array(Image.open(path))
         ld = np.array(label_meta['landmark'])
         label = label_meta['labels']
         source_path = label_meta['source_path']
-        bboxes = np.array(label_meta['dets'])
-        bbox_lm = np.array([ld[:, 0].min(), ld[:, 1].min(),
-                           ld[:, 0].max(), ld[:, 1].max()])
-        iou_max = -1
-        for i in range(len(bboxes)):
-            iou = IoUfrom2bboxes(bbox_lm, bboxes[i].flatten())
-            if iou_max < iou:
-                bbox = bboxes[i]
-                iou_max = iou
+        img = None
+        source_img = None
+        landmark_cropped = None
 
-        landmark = self.reorder_landmark(ld)
-        # if self.mode == 'train':
-        # if np.random.rand() < 0.5:
-        # img, _, landmark, bbox = self.hflip(img, None, landmark, bboxes)
+        if self.use_sbi and label == 0 and self.mode == 'train':
+            img = np.array(Image.open(path))
+            # img = self.get_cache(path)
+            bboxes = np.array(label_meta['dets'])
+            bbox_lm = np.array([ld[:, 0].min(), ld[:, 1].min(),
+                                ld[:, 0].max(), ld[:, 1].max()])
+            iou_max = -1
+            for i in range(len(bboxes)):
+                iou = IoUfrom2bboxes(bbox_lm, bboxes[i].flatten())
+                if iou_max < iou:
+                    bbox = bboxes[i]
+                    iou_max = iou
 
-        img, landmark, bbox, __ = crop_face(
-            img, landmark, bbox, margin=True, crop_by_bbox=False)
+            landmark = self.reorder_landmark(ld)
+            # if self.mode == 'train':
+            # if np.random.rand() < 0.5:
+            # img, _, landmark, bbox = self.hflip(img, None, landmark, bboxes)
 
-        img_r, img_f, mask_f = self.self_blending(img.copy(), landmark.copy())
+            img, landmark, bbox, __ = crop_face(
+                img, landmark, bbox, margin=True, crop_by_bbox=False)
 
-        if self.mode == 'train':
-            transformed = self.transforms(image=img_f.astype(
-                'uint8'), image1=img_r.astype('uint8'))
-            img_f = transformed['image']
-            img_r = transformed['image1']
+            img_r, img_f, mask_f = self.self_blending(
+                img.copy(), landmark.copy())
 
-        img, landmark_cropped, bbox_cropped, ___, y0_new, y1_new, x0_new, x1_new = crop_face(
-            img_f, landmark, bbox, margin=False, crop_by_bbox=True, abs_coord=True, phase=self.mode)
+            if self.mode == 'train':
+                transformed = self.transforms(image=img_f.astype(
+                    'uint8'), image1=img_r.astype('uint8'))
+                img_f = transformed['image']
+                img_r = transformed['image1']
 
-        source_img = img_r[y0_new:y1_new, x0_new:x1_new]
+            img, landmark_cropped, bbox_cropped, ___, y0_new, y1_new, x0_new, x1_new = crop_face(
+                img_f, landmark, bbox, margin=False, crop_by_bbox=True, abs_coord=True, phase=self.mode)
 
-        
+            source_img = img_r[y0_new:y1_new, x0_new:x1_new]
+        else:
+            # img = self.get_cache(path)
+            # source_img = self.get_cache(source_path)
+            img = cv2.imread(path, cv2.IMREAD_COLOR)
+            source_img = cv2.imread(source_path, cv2.IMREAD_COLOR)
         # img_f=cv2.resize(img_f,self.image_size,interpolation=cv2.INTER_LINEAR).astype('float32')/255
         # img_r=cv2.resize(img_r,self.image_size,interpolation=cv2.INTER_LINEAR).astype('float32')/255
 
@@ -275,9 +327,14 @@ class DeepfakeDatasetSBI(Dataset):
         # img = cv2.imread(path, cv2.IMREAD_COLOR)
         # source_img = cv2.imread(source_path, cv2.IMREAD_COLOR)
         if self.mode == "train":
-            img, label_dict = prepare_train_input(
-                img, source_img, landmark_cropped, label, self.config, self.do_train
-            )
+            if landmark_cropped is not None:
+                img, label_dict = prepare_train_input(
+                    img, source_img, landmark_cropped, label, self.config, self.do_train
+                )
+            else:
+                img, label_dict = prepare_train_input(
+                    img, source_img, ld, label, self.config, self.do_train
+                )
             if isinstance(label_dict, str):
                 return None, label_dict
 
@@ -287,9 +344,14 @@ class DeepfakeDatasetSBI(Dataset):
             return img, (label, location_label, confidence_label)
 
         elif self.mode == 'test':
-            img, label_dict = prepare_test_input(
-                [img], landmark_cropped, label, self.config
-            )
+            if landmark_cropped is not None:
+                img, label_dict = prepare_test_input(
+                    [img], landmark_cropped, label, self.config
+                )
+            else:
+                img, label_dict = prepare_test_input(
+                    [img], ld, label, self.config
+                )
             img = torch.Tensor(img[0].transpose(2, 0, 1))
             video_name = label_meta['video_name']
             return img, (label, video_name)
@@ -461,10 +523,10 @@ class DeepfakeDatasetSBI(Dataset):
         np.random.seed(np.random.get_state()[1][0] + worker_id)
 
 
-if __name__ == "__main__":
-    from lib.util import load_config
-    config = load_config('./configs/caddm_train.cfg')
-    d = DeepfakeDataset(mode="test", config=config)
-    for index in range(len(d)):
-        res = d[index]
+# if __name__ == "__main__":
+#     from lib.util import load_config
+#     config = load_config('./configs/caddm_train.cfg')
+#     d = DeepfakeDataset(mode="test", config=config)
+#     for index in range(len(d)):
+#         res = d[index]
 # vim: ts=4 sw=4 sts=4 expandtab

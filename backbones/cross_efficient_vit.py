@@ -1,4 +1,5 @@
 
+from backbones.adm import Artifact_Detection_Module
 import yaml
 import torch
 from torch import nn, einsum
@@ -7,7 +8,7 @@ import cv2
 import numpy as np
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
-from efficient_net.efficientnet_pytorch import EfficientNet
+from backbones.efficientnet_pytorch import EfficientNet
 
 # helpers
 
@@ -256,14 +257,13 @@ class ImageEmbedder(nn.Module):
 
         return self.dropout(x)
 
+
 # cross ViT class
 
 
 class CrossEfficientViT(nn.Module):
     def __init__(
-        self,
-        *,
-        config
+        self, config
     ):
         super().__init__()
         image_size = config['model']['image-size']
@@ -288,6 +288,10 @@ class CrossEfficientViT(nn.Module):
         depth = config['model']['depth']
         dropout = config['model']['dropout']
         emb_dropout = config['model']['emb-dropout']
+
+        self.detect_backbone = EfficientNet.from_pretrained('efficientnet-b0')
+        self.inplanes = self.detect_backbone.out_num_features
+        self.adm = Artifact_Detection_Module(self.inplanes)
 
         self.sm_image_embedder = ImageEmbedder(
             dim=sm_dim, image_size=image_size, patch_size=sm_patch_size, dropout=emb_dropout, efficient_block=16, channels=sm_channels)
@@ -321,7 +325,15 @@ class CrossEfficientViT(nn.Module):
         self.lg_mlp_head = nn.Sequential(nn.LayerNorm(
             lg_dim), nn.Linear(lg_dim, num_classes))
 
+        self.fc = nn.Linear(self.inplanes, num_classes)
+        self.softmax = nn.Softmax(dim=-1)
+
     def forward(self, img):
+        batch_num = img.size(0)
+        x, global_feat = self.detect_backbone(img)
+        loc, cof, adm_final_feat = self.adm(x)
+        final_cls = self.fc(adm_final_feat.view(batch_num, -1))
+
         sm_tokens = self.sm_image_embedder(img)
         lg_tokens = self.lg_image_embedder(img)
 
@@ -332,7 +344,10 @@ class CrossEfficientViT(nn.Module):
         sm_logits = self.sm_mlp_head(sm_cls)
         lg_logits = self.lg_mlp_head(lg_cls)
 
-        return sm_logits + lg_logits
+        if self.training:
+            return loc, cof, self.softmax(sm_logits + lg_logits+final_cls)
+
+        return self.softmax(sm_logits + lg_logits+final_cls)
 
 
 # if __name__ == '__main__':

@@ -44,16 +44,19 @@ class DeepfakeDatasetFF(Dataset):
             from_res = json.loads(s)
 
         for k, v in from_res.items():
-            video_path=os.path.join(self.root, k)
-            source_path=os.path.join(self.root, v['source_path'])
+            video_path = k
+            source_path = v['source_path']
+            if v['img_path'] is not None:
+                video_path = os.path.join(v['img_path'], k)
+                source_path = os.path.join(v['img_path'], v['source_path'])
             if not os.path.exists(video_path) or not os.path.exists(source_path):
                 continue
             samples.append(
-                    (video_path, {'labels': int(v['label']), 'landmark': v['landmark'],
-                            'source_path': source_path,
-                            'video_name': k.split('/')[0]})
-                )
-        print(f'get {len(samples)} train images') 
+                (video_path, {'labels': int(v['label']), 'landmark': v['landmark'],
+                              'source_path': source_path,
+                              'video_name': k.split('/')[0]})
+            )
+        print(f'get {len(samples)} train images')
         return samples
 
     def collect_class(self) -> Dict:
