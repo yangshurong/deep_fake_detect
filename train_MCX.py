@@ -26,7 +26,7 @@ def args_func():
     parser.add_argument('--cfg', type=str, help='The path to the config.',
                         default='./configs/mcx_api.cfg')
     parser.add_argument('--ckpt', type=str, help='The checkpoint of the pretrained model.',
-                        default='./checkpoints/mcx_api.pth')
+                        default='./checkpoints/wdawd')
     args = parser.parse_args()
     return args
 

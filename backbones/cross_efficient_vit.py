@@ -332,6 +332,7 @@ class CrossEfficientViT(nn.Module):
         batch_num = img.size(0)
         x, global_feat = self.detect_backbone(img)
         loc, cof, adm_final_feat = self.adm(x)
+        adm_final_feat += global_feat
         final_cls = self.fc(adm_final_feat.view(batch_num, -1))
 
         sm_tokens = self.sm_image_embedder(img)

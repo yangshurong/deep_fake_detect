@@ -234,15 +234,15 @@ class DeepfakeDatasetSBI(Dataset):
                             (video_path, {'labels': int(v['label']) ^ 1, 'landmark': v['landmark'],
                                           'source_path': source_path,
                                           'video_name': k.split('/')[0],
-                                          'use_SBI': True,
+                                          'use_SBI': False,
                                           'dets': v['dets']})
                         )
-                        if int(v['label']) == 1 and self.mode == 'train':
+                        if int(v['label']) == 1 and np.random.rand() < self.use_sbi:
                             samples.append(
                                 (video_path, {'labels': int(v['label']) ^ 1, 'landmark': v['landmark'],
                                               'source_path': source_path,
                                               'video_name': k.split('/')[0],
-                                              'use_SBI': False,
+                                              'use_SBI': True,
                                               'dets': v['dets']})
                             )
 
@@ -273,12 +273,14 @@ class DeepfakeDatasetSBI(Dataset):
         path, label_meta = self.samples[index]
         ld = np.array(label_meta['landmark'])
         label = label_meta['labels']
+        use_sbi = label_meta['use_SBI']
         source_path = label_meta['source_path']
         img = None
         source_img = None
         landmark_cropped = None
 
-        if self.use_sbi and label == 0 and self.mode == 'train':
+        if use_sbi:
+            label ^= 1
             img = np.array(Image.open(path))
             # img = self.get_cache(path)
             bboxes = np.array(label_meta['dets'])

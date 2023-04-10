@@ -9,6 +9,7 @@ from torch.autograd import Variable
 from backbones.adm import Artifact_Detection_Module
 from backbones.resnet import resnet34
 from backbones.efficientnet_pytorch import EfficientNet
+from backbones.class_layer.inceptionnext import inceptionnext_small
 
 
 class CADDM(nn.Module):
@@ -29,9 +30,12 @@ class CADDM(nn.Module):
             self.base_model = EfficientNet.from_pretrained(
                 'efficientnet-b4'
             )
+        elif backbone == 'inceptionConvnext':
+            self.base_model = inceptionnext_small(True)
         else:
             raise ValueError("Unsupported Backbone!")
 
+        print(f'load backbone for {backbone}')
         self.inplanes = self.base_model.out_num_features
 
         self.adm = Artifact_Detection_Module(self.inplanes)
@@ -54,4 +58,3 @@ class CADDM(nn.Module):
         if self.training:
             return loc, cof, final_cls
         return self.softmax(final_cls)
-

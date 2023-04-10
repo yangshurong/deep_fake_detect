@@ -24,9 +24,9 @@ LOGGER = get_logger()
 def args_func():
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, help='The path to the config.',
-                        default='./configs/cross_efficient_vit.cfg')
+                        default='./configs/caddm_train.cfg')
     parser.add_argument('--ckpt', type=str, help='The checkpoint of the pretrained model.',
-                        default='./checkpoints/qqcross_efficient_vit_init.pth')
+                        default='./checkpoints/wadwd')
     args = parser.parse_args()
     return args
 
@@ -188,7 +188,6 @@ def train():
                 (locations, confidence),
                 confidence_labels, location_labels
             )
-            print(outputs.shape)
             acc = sum(outputs.max(-1).indices ==
                       labels).item() / labels.shape[0]
             det_loss = 0.1 * (loss_l + loss_c)
@@ -215,7 +214,8 @@ def train():
                             )
             net.eval()
             for k, v in test_loaders.items():
-                test_one_epoch(k, net, device, v, cfg, optimizer, epoch)
+                with torch.no_grad():
+                    test_one_epoch(k, net, device, v, cfg, optimizer, epoch)
 
 
 if __name__ == "__main__":

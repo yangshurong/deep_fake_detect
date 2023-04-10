@@ -6,6 +6,7 @@ import numpy as np
 import sys
 import torch.nn.functional as F
 from .xception import xception
+from backbones.class_layer.inceptionnext import inceptionnext_small
 # from model.vit import vit_b_16
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -41,10 +42,17 @@ class API_Net(nn.Module):
         elif model_name == 'xception':
             model = xception()
             kernel_size = 14
+        elif model_name == 'inceptionConvnext':
+            model = inceptionnext_small(True)
+            kernel_size = 8
         else:
-            sys.exit('wrong model name baby')
+            raise ValueError("Unsupported Backbone!")
+        
+        if model_name!='inceptionConvnext':
+            layers = list(model.children())[:-2]
+        else:
+            layers = list(model.children())
 
-        layers = list(model.children())[:-2]
         if 'res' in model_name:
             fc_size = model.fc.in_features
         elif 'eff' in model_name:
@@ -53,6 +61,8 @@ class API_Net(nn.Module):
             fc_size = model.hidden_dim
         elif 'xception' in model_name:
             fc_size = 2048
+        elif model_name == 'inceptionConvnext':
+            fc_size = 768
         else:
             sys.exit('wrong network name baby')
 
@@ -65,7 +75,6 @@ class API_Net(nn.Module):
 
         self.drop = nn.Dropout(p=0.5)
         self.sigmoid = nn.Sigmoid()
-
 
     def forward(self, images, targets=None, flag='train', dist_type='euclidean'):
 
