@@ -6,6 +6,7 @@ import numpy as np
 import sys
 import torch.nn.functional as F
 from .xception import xception
+from backbones.adm import Artifact_Detection_Module
 from backbones.class_layer.inceptionnext import inceptionnext_small
 # from model.vit import vit_b_16
 
@@ -25,9 +26,9 @@ def pw_cosine_distance(vector):
     return cos_dist
 
 
-class API_Net(nn.Module):
+class API_Net_Det(nn.Module):
     def __init__(self, cfg, num_classes=2):
-        super(API_Net, self).__init__()
+        super(API_Net_Det, self).__init__()
         model_name = cfg['model']['backbone']
         # ---------Resnet101---------
         print("my model name", model_name)
@@ -47,8 +48,8 @@ class API_Net(nn.Module):
             kernel_size = 14
         else:
             raise ValueError("Unsupported Backbone!")
-        
-        if model_name!='inceptionConvnext':
+
+        if model_name != 'inceptionConvnext':
             layers = list(model.children())[:-2]
         else:
             layers = list(model.children())[:-1]
@@ -66,6 +67,10 @@ class API_Net(nn.Module):
         else:
             sys.exit('wrong network name baby')
 
+        self.inplanes = model.out_num_features
+
+        self.adm = Artifact_Detection_Module(self.inplanes, is_mcx=True)
+
         self.conv = nn.Sequential(*layers)
         self.avg = nn.AvgPool2d(kernel_size=kernel_size, stride=1)
 
@@ -79,8 +84,9 @@ class API_Net(nn.Module):
     def forward(self, images, targets=None, flag='train', dist_type='euclidean'):
 
         conv_out = self.conv(images)
+        loc, cof, adm_final_feat = self.adm(conv_out)
         pool_out_old = self.avg(conv_out)
-        pool_out = pool_out_old.squeeze()
+        pool_out = pool_out_old.squeeze()+adm_final_feat.squeeze()
 
         if flag == 'train':
             intra_pairs, inter_pairs, intra_labels, inter_labels = self.get_pairs(
@@ -118,7 +124,7 @@ class API_Net(nn.Module):
 
             features = F.softmax(self.fc(pool_out))
 
-            return logit1_self, logit1_other, logit2_self, logit2_other, labels1, labels2, features
+            return loc, cof, logit1_self, logit1_other, logit2_self, logit2_other, labels1, labels2, features
 
         elif flag == 'features':
             intra_pairs, inter_pairs, intra_labels, inter_labels = self.get_pairs(

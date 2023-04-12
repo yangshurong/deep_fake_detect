@@ -114,7 +114,8 @@ class Multi_scale_Detection_Module(nn.Module):
         confidence, location = list(), list()
         for (feat, detector, classifier) in zip(x, self.ms_dets, self.ms_cls):
             location.append(detector(feat).permute(0, 2, 3, 1).contiguous())
-            confidence.append(classifier(feat).permute(0, 2, 3, 1).contiguous())
+            confidence.append(classifier(
+                feat).permute(0, 2, 3, 1).contiguous())
 
         confidence = torch.cat([o.view(o.size(0), -1) for o in confidence], 1)
         location = torch.cat([o.view(o.size(0), -1) for o in location], 1)
@@ -125,7 +126,7 @@ class Multi_scale_Detection_Module(nn.Module):
 class Artifact_Detection_Module(nn.Module):
 
     def __init__(
-            self, inplanes, blocks=1, class_num=2,
+            self, inplanes, is_mcx=False, blocks=1, class_num=2,
             width_hight_ratios=2, extra_layers=None,
     ):
 
@@ -140,6 +141,12 @@ class Artifact_Detection_Module(nn.Module):
 
         if extra_layers is None:
             extra_layers = [ADM_ExtraBlock] * 3 + [ADM_EndBlock]
+        self.is_mcx = is_mcx
+        if self.is_mcx:
+            self.pre_layer = self._make_layer(
+                ADM_ExtraBlock, inplanes,
+                blocks=blocks, kernel_size=1, stride=2
+            )
 
         for i, extra_block in enumerate(extra_layers):
             ks = 3 if i else 1
@@ -154,7 +161,6 @@ class Artifact_Detection_Module(nn.Module):
                 adm_extra_layers.append(extra_block(inplanes, inplanes))
 
         self.adm_extra_layers = nn.ModuleList(adm_extra_layers)
-        
 
         self.multi_scale_detection_module = Multi_scale_Detection_Module(
             inplanes, extra_layers=extra_layers
@@ -180,8 +186,13 @@ class Artifact_Detection_Module(nn.Module):
         bs = x.size(0)
         adm_feats = list()
 
+        
+        if self.is_mcx:
+            x = self.pre_layer(x)
+        # print('input adm shape', x.shape)    
         for adm_layer in self.adm_extra_layers:
             x = adm_layer(x)
+            # print('adm shape', x.shape)
             adm_feats.append(x)
 
         location, confidence = self.multi_scale_detection_module(adm_feats)

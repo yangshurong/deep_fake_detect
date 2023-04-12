@@ -47,7 +47,6 @@ class CADDM(nn.Module):
     def forward(self, x):
         batch_num = x.size(0)
         x, global_feat = self.base_model(x)
-        # print('x shape',x.shape)
         # print('global_feat shape',global_feat.shape)
         # location result, confidence of each anchor, final feature map of adm.
         loc, cof, adm_final_feat = self.adm(x)

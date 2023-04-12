@@ -27,7 +27,7 @@ class DeepfakeDatasetTEST(Dataset):
     def __init__(self, set_name, root, cfg):
         super().__init__()
         self.root = root
-        self.config=cfg
+        self.config = cfg
         self.set_name = set_name
         self.rng = np.random
         self.samples = self.collect_samples()
@@ -101,14 +101,13 @@ class DeepfakeDatasetTEST(Dataset):
 
         img = cv2.imread(path, cv2.IMREAD_COLOR)
         source_img = cv2.imread(source_path, cv2.IMREAD_COLOR)
-
         img, label_dict = prepare_test_input(
             [img], ld, label, self.config
         )
+        
         img = torch.Tensor(img[0].transpose(2, 0, 1))
         video_name = label_meta['video_name']
         return img, (label, video_name)
-
 
     def __len__(self):
         return len(self.samples)

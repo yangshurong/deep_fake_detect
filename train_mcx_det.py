@@ -24,7 +24,7 @@ LOGGER = get_logger()
 def args_func():
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, help='The path to the config.',
-                        default='./configs/mcx_api.cfg')
+                        default='./configs/mcx_api_det.cfg')
     parser.add_argument('--ckpt', type=str, help='The checkpoint of the pretrained model.',
                         default='./checkpoints/wdawd')
     args = parser.parse_args()
@@ -62,7 +62,7 @@ def load_checkpoint(ckpt, net, opt):
 
     if 'epoch' in checkpoint:
         base_epoch = int(checkpoint['epoch'])+1
-    LOGGER.info(f'finish load {ckpt}')    
+    LOGGER.info(f'finish load {ckpt}')
     return net, opt, base_epoch
 
 
@@ -156,7 +156,7 @@ def train():
     train_loader = DataLoader(train_dataset,
                               batch_size=cfg['train']['batch_size'],
                               shuffle=True, num_workers=cfg['num_worker'],
-                              collate_fn=my_collate, pin_memory=True,drop_last=True
+                              collate_fn=my_collate, pin_memory=True, drop_last=True
                               )
     test_loaders = {}
     for k, v in cfg['test']['dataset'].items():
@@ -181,7 +181,7 @@ def train():
     base_epoch = 0
     if args.ckpt:
         net, optimizer, base_epoch = load_checkpoint(args.ckpt, net, optimizer)
-        
+
     # net = nn.DataParallel(net)
 
     # loss init
@@ -207,75 +207,76 @@ def train():
     softmax_layer = nn.Softmax(dim=1).to(device)
 
     for epoch in range(base_epoch, cfg['train']['epoch_num']):
-        # net.train()
-        # for index, (batch_data, batch_labels) in enumerate(train_loader):
-        #     time_enter = int(time.time())
-        #     if cfg['log_time_cost'] and index != 0:
-        #         LOGGER.info(f'dataload one cost{time_enter-time_out}')
+        net.train()
+        for index, (batch_data, batch_labels) in enumerate(train_loader):
+            time_enter = int(time.time())
+            if cfg['log_time_cost'] and index != 0:
+                LOGGER.info(f'dataload one cost{time_enter-time_out}')
 
-        #     # detect--------------------------------
-        #     labels, location_labels, confidence_labels = batch_labels
-        #     labels = labels.long().to(device)
-        #     location_labels = location_labels.to(device)
-        #     confidence_labels = confidence_labels.long().to(device)
-        #     batch_data = batch_data.to(device)
+            # detect--------------------------------
+            labels, location_labels, confidence_labels = batch_labels
+            labels = labels.long().to(device)
+            location_labels = location_labels.to(device)
+            confidence_labels = confidence_labels.long().to(device)
+            batch_data = batch_data.to(device)
 
-        #     # MCX--------------------------------
-        #     optimizer.zero_grad()
-        #     logit1_self, logit1_other, logit2_self, logit2_other, labels1, labels2, features = net(
-        #         batch_data, labels, flag='train', dist_type='euclidean')
-            
-        #     # locations, confidence, logit1_self, logit1_other, logit2_self, logit2_other, labels1, labels2, features = model(
-        #     #     batch_data, labels, flag='train', dist_type='euclidean')
-        #     batch_size = logit1_self.shape[0]
-        #     labels1 = labels1.to(device)
-        #     labels2 = labels2.to(device)
+            # MCX--------------------------------
+            optimizer.zero_grad()
+            locations, confidence, logit1_self, logit1_other, logit2_self, logit2_other, labels1, labels2, features = net(
+                batch_data, labels, flag='train', dist_type='euclidean')
 
-        #     self_logits = torch.zeros(2*batch_size, 2).to(device)
-        #     other_logits = torch.zeros(2*batch_size, 2).to(device)
-        #     self_logits[:batch_size] = logit1_self
-        #     self_logits[batch_size:] = logit2_self
-        #     other_logits[:batch_size] = logit1_other
-        #     other_logits[batch_size:] = logit2_other
+            # locations, confidence, logit1_self, logit1_other, logit2_self, logit2_other, labels1, labels2, features = model(
+            #     batch_data, labels, flag='train', dist_type='euclidean')
+            batch_size = logit1_self.shape[0]
+            labels1 = labels1.to(device)
+            labels2 = labels2.to(device)
 
-        #     logits = torch.cat([self_logits, other_logits], dim=0)
-        #     targets = torch.cat([labels1, labels2, labels1, labels2], dim=0)
-        #     softmax_loss = criterion(logits, targets)
+            self_logits = torch.zeros(2*batch_size, 2).to(device)
+            other_logits = torch.zeros(2*batch_size, 2).to(device)
+            self_logits[:batch_size] = logit1_self
+            self_logits[batch_size:] = logit2_self
+            other_logits[:batch_size] = logit1_other
+            other_logits[batch_size:] = logit2_other
 
-        #     self_scores = softmax_layer(self_logits)[torch.arange(2*batch_size).to(device).long(),
-        #                                              torch.cat([labels1, labels2], dim=0)]
-        #     other_scores = softmax_layer(other_logits)[torch.arange(2*batch_size).to(device).long(),
-        #                                                torch.cat([labels1, labels2], dim=0)]
-        #     flag = torch.ones([2*batch_size, ]).to(device)
-        #     rank_loss = rank_criterion(self_scores, other_scores, flag)
+            logits = torch.cat([self_logits, other_logits], dim=0)
+            targets = torch.cat([labels1, labels2, labels1, labels2], dim=0)
+            softmax_loss = criterion(logits, targets)
 
-        #     # orthogonal projection loss
-        #     loss_op = op_loss(features, labels)
+            self_scores = softmax_layer(self_logits)[torch.arange(2*batch_size).to(device).long(),
+                                                     torch.cat([labels1, labels2], dim=0)]
+            other_scores = softmax_layer(other_logits)[torch.arange(2*batch_size).to(device).long(),
+                                                       torch.cat([labels1, labels2], dim=0)]
+            flag = torch.ones([2*batch_size, ]).to(device)
+            rank_loss = rank_criterion(self_scores, other_scores, flag)
 
-        #     # loss_l, loss_c = det_criterion(
-        #     #     (locations, confidence),
-        #     #     confidence_labels, location_labels
-        #     # )
-        #     # det_loss = 0.1 * (loss_l + loss_c)
+            # orthogonal projection loss
+            loss_op = op_loss(features, labels)
 
-        #     loss = softmax_loss + rank_loss + op_lambda * loss_op
-        #     loss.backward()
-        #     # measure accuracy and record loss
-        #     acc = sum(logits.max(-1).indices ==
-        #               targets).item() / targets.shape[0]
+            loss_l, loss_c = det_criterion(
+                (locations, confidence),
+                confidence_labels, location_labels
+            )
+            det_loss = 0.1 * (loss_l + loss_c)
 
-        #     optimizer.step()
-        #     lr_scheduler.step()
+            loss = softmax_loss + rank_loss + op_lambda * loss_op+det_loss
+            loss.backward()
+            # measure accuracy and record loss
+            acc = sum(logits.max(-1).indices ==
+                      targets).item() / targets.shape[0]
 
-        #     outputs = [
-        #         "e:{},iter: {}".format(epoch, index),
-        #         "acc: {:.6f}".format(acc),
-        #         "loss: {:.8f} ".format(loss.item()),
-        #         "lr:{:.4g}".format(optimizer.state_dict()['param_groups'][0]['lr']),
-        #     ]
-        #     if index % cfg['log_interval'] == 0:
-        #         LOGGER.info(" ".join(outputs))
-        #     time_out = int(time.time())
+            optimizer.step()
+            lr_scheduler.step()
+
+            outputs = [
+                "e:{},iter: {}".format(epoch, index),
+                "acc: {:.6f}".format(acc),
+                "loss: {:.8f} ".format(loss.item()),
+                "lr:{:.4g}".format(optimizer.state_dict()[
+                                   'param_groups'][0]['lr']),
+            ]
+            if index % cfg['log_interval'] == 0:
+                LOGGER.info(" ".join(outputs))
+            time_out = int(time.time())
         if (epoch+1) % cfg['save_epoch'] == 0:
             save_checkpoint(net, optimizer,
                             cfg['model']['save_path'],

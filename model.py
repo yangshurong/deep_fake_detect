@@ -3,7 +3,7 @@ import torch
 from backbones.caddm import CADDM
 from backbones.cross_efficient_vit import CrossEfficientViT
 from backbones.mcx_api import API_Net
-
+from backbones.mcx_api_det import API_Net_Det
 def get(cfg):
     """
     load one model
@@ -19,6 +19,8 @@ def get(cfg):
         model = CrossEfficientViT(cfg)
     elif cfg['model']['name'] == 'mcx_api':
         model = API_Net(cfg)
+    elif cfg['model']['name'] == 'mcx_api_det':
+        model = API_Net_Det(cfg)    
     return model
 
 

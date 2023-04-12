@@ -1,0 +1,22 @@
+2023-04-11 22:34:40,085 train_mcx_det.py train [line:278] INFO e:0,iter: 0 acc: 0.625000 loss: 2.01400733  lr:0.01
+2023-04-11 22:34:45,414 train_mcx_det.py train [line:278] INFO e:0,iter: 10 acc: 0.968750 loss: 0.67622209  lr:0.01
+2023-04-11 22:34:51,113 train_mcx_det.py train [line:278] INFO e:0,iter: 20 acc: 0.583333 loss: nan  lr:0.01
+2023-04-11 22:34:56,573 train_mcx_det.py train [line:278] INFO e:0,iter: 30 acc: 0.312500 loss: nan  lr:0.01
+2023-04-11 22:35:02,186 train_mcx_det.py train [line:278] INFO e:0,iter: 40 acc: 0.562500 loss: nan  lr:0.01
+2023-04-11 22:35:07,672 train_mcx_det.py train [line:278] INFO e:0,iter: 50 acc: 0.687500 loss: nan  lr:0.01
+2023-04-11 22:35:13,540 train_mcx_det.py train [line:278] INFO e:0,iter: 60 acc: 0.416667 loss: nan  lr:0.01
+2023-04-11 22:35:19,662 train_mcx_det.py train [line:278] INFO e:0,iter: 70 acc: 0.000000 loss: nan  lr:0.01
+2023-04-11 22:35:25,192 train_mcx_det.py train [line:278] INFO e:0,iter: 80 acc: 0.375000 loss: nan  lr:0.01
+2023-04-11 22:35:31,188 train_mcx_det.py train [line:278] INFO e:0,iter: 90 acc: 0.312500 loss: nan  lr:0.009999
+2023-04-11 22:35:37,307 train_mcx_det.py train [line:278] INFO e:0,iter: 100 acc: 0.687500 loss: nan  lr:0.009999
+2023-04-11 22:35:45,550 train_mcx_det.py train [line:278] INFO e:0,iter: 110 acc: 0.562500 loss: nan  lr:0.009999
+2023-04-11 22:35:51,698 train_mcx_det.py train [line:278] INFO e:0,iter: 120 acc: 0.625000 loss: nan  lr:0.009999
+2023-04-11 22:35:57,821 train_mcx_det.py train [line:278] INFO e:0,iter: 130 acc: 0.666667 loss: nan  lr:0.009999
+2023-04-11 22:36:03,419 train_mcx_det.py train [line:278] INFO e:0,iter: 140 acc: 0.312500 loss: nan  lr:0.009999
+2023-04-11 22:36:09,939 train_mcx_det.py train [line:278] INFO e:0,iter: 150 acc: 0.687500 loss: nan  lr:0.009999
+2023-04-11 22:36:15,945 train_mcx_det.py train [line:278] INFO e:0,iter: 160 acc: 0.000000 loss: nan  lr:0.009998
+2023-04-11 22:36:21,809 train_mcx_det.py train [line:278] INFO e:0,iter: 170 acc: 0.625000 loss: nan  lr:0.009998
+2023-04-11 22:36:27,625 train_mcx_det.py train [line:278] INFO e:0,iter: 180 acc: 0.375000 loss: nan  lr:0.009998
+2023-04-11 22:36:33,375 train_mcx_det.py train [line:278] INFO e:0,iter: 190 acc: 0.625000 loss: nan  lr:0.009998
+2023-04-11 22:36:40,378 train_mcx_det.py save_checkpoint [line:47] INFO success save ./checkpoints/mcx_api_det_epoch_0.pkl
+2023-04-11 22:36:42,397 train_mcx_det.py test_one_epoch [line:98] INFO finish eval 0 acc is 0.0000
